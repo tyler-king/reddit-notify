@@ -38,6 +38,8 @@ $ bin/reddit-notify check --username=your_reddit_username --passwd=your_reddit_p
 
 This will check your unread messages and e-mail you a descriptive e-mail about the comment or message. It will not re-notify you, it will record the last message ID checked and then check again from there on next run.
 
+Subject message format is as followed: `[RN] {TYPE: Private|Comment}: {USER} - {SUBJECT LINE}`
+
 ## Cron Install
 
 Of course you want this running in the background checking, so on your server, run `crontab -e` and add the following for a check every 15 minutes:
