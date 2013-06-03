@@ -79,4 +79,5 @@ Options:
 
 ## Example
 
+![Screenshot](https://raw.github.com/tyler-king/reddit-notify/master/ios.jpg "Screenshot")
 ![Screenshot](https://raw.github.com/tyler-king/reddit-notify/master/thunderbird.jpg "Screenshot")
