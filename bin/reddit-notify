@@ -1,0 +1,139 @@
+#!/usr/bin/env php
+<?php
+
+if ((! @include __DIR__.'/../../../autoload.php') && (! @include __DIR__.'/../vendor/autoload.php')) {
+    die('You must set up the project dependencies, run the following commands:' . PHP_EOL .
+         'curl -s http://getcomposer.org/installer | php' . PHP_EOL .
+         'php composer.phar install' . PHP_EOL
+    );
+}
+
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Serializer\Serializer;
+use Symfony\Component\Serializer\Encoder\JsonEncoder;
+use Symfony\Component\Serializer\Normalizer\GetSetMethodNormalizer;
+use Symfony\Component\Yaml\Parser;
+use Symfony\Component\Yaml\Dumper;
+use Symfony\Component\Yaml\Exception\ParseException;
+
+$console = new Application;
+$console
+    ->register('check')
+    ->addOption(
+        'username',
+        null,
+        InputOption::VALUE_REQUIRED,
+        'Reddit username',
+        null
+    )
+    ->addOption(
+        'passwd',
+        null,
+        InputOption::VALUE_REQUIRED,
+        'Reddit passwd',
+        null
+    )
+    ->addOption(
+        'config',
+        null,
+        InputOption::VALUE_REQUIRED,
+        'Configuration path',
+        null
+    )
+    ->setDescription('Notifys you of any Reddit message / reply.')
+    ->setCode(function(InputInterface $input, OutputInterface $output) use($console) {
+        $serializer = new Serializer([new GetSetMethodNormalizer], ['json' => new JsonEncoder]);
+
+        $username = $input->getOption('username');
+        $passwd   = $input->getOption('passwd');
+        $config   = $input->getOption('config') ?: __DIR__.'/../data/reddit-notify.yml';
+
+        if (null === $username || null === $passwd) {
+            $output->writenl('<error>Username and password must be provided. See "bin/reddit-notify check --help"</error>');
+            return false;
+        }
+
+        $curl    = curl_init("https://ssl.reddit.com/api/login/{$username}");
+        $options = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIE         => 'reddit_session=null',
+            CURLOPT_TIMEOUT        => 3,
+            CURLOPT_POSTFIELDS     => "api_type=json&user={$username}&passwd={$passwd}",
+            CURLOPT_CUSTOMREQUEST  => 'POST'
+        ];
+
+        curl_setopt_array($curl, $options);
+        $json = $serializer->decode(curl_exec($curl), 'json')['json'];
+        curl_close($curl);
+
+        if (sizeof($json['errors']) > 0) {
+            $output->writenl('<error>Username or password is incorrect.</error>');
+            return false;
+        }
+
+        $last_thing = null;
+        if (file_exists(__DIR__."/../data/thing_{$username}.txt")) {
+            $last_thing = file_get_contents(__DIR__."/../data/thing_{$username}.txt");
+        }
+
+        $curl    = curl_init("http://www.reddit.com/message/inbox.json?before={$last_thing}");
+        $options = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIE         => "reddit_session={$json['data']['cookie']}",
+            CURLOPT_TIMEOUT        => 3
+        ];
+
+        curl_setopt_array($curl, $options);
+        $messages = array_reverse($serializer->decode(curl_exec($curl), 'json')['data']['children']);
+        curl_close($curl);
+
+        $yaml = [];
+        try {
+            $parser = new Parser;
+            $yaml   = $parser->parse(file_get_contents($config));
+        } catch (ParseException $e) {
+            $output->writenl(sprintf("Error: Unable to parse the YAML string: %s", $e->getMessage()));
+            return false;
+        }
+
+        $thing     = null;
+        $transport = \Swift_SmtpTransport::newInstance($yaml['mailer_host'], $yaml['mailer_port'], $yaml['mailer_type'])
+            ->setUsername($yaml['mailer_username'])
+            ->setPassword($yaml['mailer_password'])
+        ;
+        $mailer    = Swift_Mailer::newInstance($transport);
+
+        foreach ($messages as $message) {
+            $kind  = $message['kind'];
+            $data  = $message['data'];
+
+            if (false == $data['new']) {
+                continue;
+            }
+
+            $thing     = $data['name'];
+            $subject   = $data['subject'];
+            $from      = $data['author'];
+            $body      = $data['body'];
+            $subreddit = $data['subreddit'];
+
+            $time = new \DateTime("@{$data['created_utc']}");
+            $time->setTimezone(new DateTimeZone($yaml['mailer_timezone']));
+            $date = $time->format('l jS \of F Y h:i:s A T');
+
+            $message = \Swift_Message::newInstance()
+                ->setSubject($kind == 't4' ? "[RN] Private: {$from} - {$subject}" : "[RN] Comment: {$from} - {$subject}")
+                ->setFrom([$yaml['mailer_username'] => $from])
+                ->setTo([$yaml['mailer_username'] => $yaml['mailer_fullname']])
+                ->setBody("From: {$from}\nTime: {$date}\nSubreddit: {$subreddit}\n\n{$body}")
+            ;
+            $mailer->send($message);
+        }
+
+        file_put_contents(__DIR__."/../data/thing_{$username}.txt", $thing);
+    });
+$console->run();

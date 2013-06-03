@@ -1,0 +1,12 @@
+# Mailer setup
+mailer_host: smtp.gmail.com
+mailer_port: 465
+mailer_type: ssl
+mailer_username: you@gmail.com
+mailer_password: your_password
+
+# Your full name
+mailer_fullname: Your Name
+
+# See http://php.net/manual/en/timezones.php for Timezone list
+mailer_timezone: America/St_Johns
