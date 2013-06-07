@@ -88,8 +88,12 @@ $console
         ];
 
         curl_setopt_array($curl, $options);
-        $messages = array_reverse($serializer->decode(curl_exec($curl), 'json')['data']['children']);
+        $decode = $serializer->decode(curl_exec($curl), 'json');
         curl_close($curl);
+
+        if (0 === sizeof($decode['data']['children'])) {
+            return false;
+        }
 
         $yaml = [];
         try {
@@ -106,6 +110,7 @@ $console
             ->setPassword($yaml['mailer_password'])
         ;
         $mailer    = Swift_Mailer::newInstance($transport);
+        $messages  = array_reverse($decode['data']['children']);
 
         foreach ($messages as $message) {
             $kind  = $message['kind'];
